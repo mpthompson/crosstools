@@ -1,0 +1,280 @@
+Creates GCC 4.7.4 based cross development tools suitable for 
+development of armv5t based systems.
+
+Install dependent packages.
+
+sudo apt-get install libgmp-dev libmpfr-dev libmpc-dev
+
+Add the following to the end of the roots .bashrc:
+
+PATH="$PATH:/usr/local/arm_linux_4.7/bin"
+
+Build the binutils.
+
+mkdir -p ~/Linux/crosstools/build
+
+cd ~/Linux/crosstools/build
+tar xfj ../packages/binutils-2.21.tar.bz2
+cd binutils-2.21
+./configure --target=arm-none-linux-gnueabi \
+    --prefix=/usr/local/arm_linux_4.7 \
+    --disable-werror
+make all
+sudo make install
+
+Build the GCC compiler, but not the entire GCC package.  Just enough to build uClibc.
+
+cd ~/Linux/crosstools/build
+tar xfj ../packages/gcc-4.7.4.tar.bz2
+mkdir gcc-4.7.4-cross
+cd gcc-4.7.4-cross
+AR_FOR_TARGET=arm-none-linux-gnueabi-ar \
+	../gcc-4.7.4/configure \
+    --prefix=/usr/local/arm_linux_4.7 \
+    --target=arm-none-linux-gnueabi \
+    --with-float=soft \
+    --with-mode=arm \
+    --with-arch=armv5te \
+    --with-tune=arm926ej-s \
+    --without-newlib \
+    --disable-threads \
+    --disable-shared \
+    --disable-multilib \
+    --disable-nls \
+    --enable-c99 \
+    --enable-long-long \
+    --enable-__cxa_atexit \
+    --enable-languages=c
+make all-gcc all-target-libgcc
+sudo make install-gcc install-target-libgcc
+sudo rm -rf /usr/local/arm_linux_4.7/include
+sudo mkdir /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/include
+sudo ln -s arm-none-linux-gnueabi /usr/local/arm_linux_4.7/arm-linux
+sudo ln -s arm-linux/include /usr/local/arm_linux_4.7/include
+
+Make Linux headers needed by uClibc.
+
+cd ~/Linux/crosstools/build
+cp -a ~/Linux/arm-soc linux
+cd linux
+cp ../../notes/mini_config_linux mini_config
+make ARCH=arm KCONFIG_ALLCONFIG=mini_config allnoconfig > /dev/null
+sudo su
+sudo make -j 2 headers_install ARCH=arm INSTALL_HDR_PATH=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi
+find /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/include -name ".install" -print0 -or -name "..install.cmd" -print0 | xargs -0 rm
+exit
+
+Make uClibc.
+
+cd ~/Linux/crosstools/build
+tar xfj ../packages/uClibc-0.9.33.2.tar.bz2
+cd uClibc-0.9.33.2
+
+Add the following patch to the file:
+
+libc/sysdeps/linux/arm/bits/kernel_types.h
+----------------------------------------------
+typedef __kernel_dev_t               __kernel_old_dev_t;
++typedef long                         __kernel_long_t;
++typedef unsigned long                __kernel_ulong_t;
+----------------------------------------------
+
+cp ../../notes/mini_config_uclibc mini_config
+make KCONFIG_ALLCONFIG=mini_config allnoconfig
+sudo su
+make -j 2 CROSS=/usr/local/arm_linux_4.7/bin/arm-none-linux-gnueabi- \
+    UCLIBC_LDSO_NAME=ld-uClibc KERNEL_HEADERS=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi/include \
+    PREFIX=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi RUNTIME_PREFIX=/ DEVEL_PREFIX=/ install
+cp /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/lib/ld-uClibc-0.9.33.2.so \
+    /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/lib/ld-linux.so.3
+exit
+
+Add the following line to the end of the following file:
+
+/usr/local/arm_linux_4.7/lib/gcc/arm-none-linux-gnueabi/4.7.4/include/limits.h
+----------------------------------------------
+#ifndef SSIZE_MAX
+# define SSIZE_MAX      LONG_MAX
+#endif
+----------------------------------------------
+
+Remake the actual GCC compiler package.
+
+cd ~/Linux/crosstools/build
+tar xfj ../packages/gcc-4.7.4.tar.bz2
+mkdir gcc-4.7.4-cross2
+cd gcc-4.7.4-cross2
+../gcc-4.7.4/configure \
+    --prefix=/usr/local/arm_linux_4.7 \
+    --build=x86_64-linux-gnu \
+    --host=x86_64-linux-gnu \
+    --target=arm-none-linux-gnueabi \
+    --with-float=soft \
+    --with-gnu-ld \
+    --with-gnu-as \
+    --with-mode=arm \
+    --with-arch=armv5te \
+    --with-tune=arm926ej-s \
+    --disable-multilib \
+    --disable-nls \
+    --disable-sjlj-exceptions \
+    --disable-libmudflap \
+    --disable-libgomp \
+    --enable-shared \
+    --enable-threads=posix \
+    --enable-c99 \
+    --enable-long-long \
+    --enable-__cxa_atexit \
+    --enable-languages=c,c++
+
+make all
+sudo make install
+
+Build gdb client.
+
+cd ~/Linux/crosstools/build
+tar xfz ../packages/gdb-7.8.tar.gz
+mkdir gdb-7.8-cross
+cd gdb-7.8-cross
+../gdb-7.8/configure \
+    --prefix=/usr/local/arm_linux_4.7 \
+    --build=x86_64-linux-gnu \
+    --host=x86_64-linux-gnu \
+    --target=arm-none-linux-gnueabi
+make
+sudo make install
+
+Link the arm-linux- names.
+
+sudo su
+ln -s arm-none-linux-gnueabi-addr2line   /usr/local/arm_linux_4.7/bin/arm-linux-addr2line
+ln -s arm-none-linux-gnueabi-ar          /usr/local/arm_linux_4.7/bin/arm-linux-ar
+ln -s arm-none-linux-gnueabi-as          /usr/local/arm_linux_4.7/bin/arm-linux-as
+ln -s arm-none-linux-gnueabi-c++         /usr/local/arm_linux_4.7/bin/arm-linux-c++
+ln -s arm-none-linux-gnueabi-c++filt     /usr/local/arm_linux_4.7/bin/arm-linux-c++filt
+ln -s arm-none-linux-gnueabi-cpp         /usr/local/arm_linux_4.7/bin/arm-linux-cpp
+ln -s arm-none-linux-gnueabi-g++         /usr/local/arm_linux_4.7/bin/arm-linux-g++
+ln -s arm-none-linux-gnueabi-gcc         /usr/local/arm_linux_4.7/bin/arm-linux-gcc
+ln -s arm-none-linux-gnueabi-gcc-4.7.4   /usr/local/arm_linux_4.7/bin/arm-linux-gcc-4.7.4
+ln -s arm-none-linux-gnueabi-gccbug      /usr/local/arm_linux_4.7/bin/arm-linux-gccbug
+ln -s arm-none-linux-gnueabi-gcov        /usr/local/arm_linux_4.7/bin/arm-linux-gcov
+ln -s arm-none-linux-gnueabi-gdb          /usr/local/arm_linux_4.7/bin/arm-linux-gdb
+ln -s arm-none-linux-gnueabi-ld          /usr/local/arm_linux_4.7/bin/arm-linux-ld
+ln -s arm-none-linux-gnueabi-nm          /usr/local/arm_linux_4.7/bin/arm-linux-nm
+ln -s arm-none-linux-gnueabi-objcopy     /usr/local/arm_linux_4.7/bin/arm-linux-objcopy
+ln -s arm-none-linux-gnueabi-objdump     /usr/local/arm_linux_4.7/bin/arm-linux-objdump
+ln -s arm-none-linux-gnueabi-ranlib      /usr/local/arm_linux_4.7/bin/arm-linux-ranlib
+ln -s arm-none-linux-gnueabi-readelf     /usr/local/arm_linux_4.7/bin/arm-linux-readelf
+ln -s arm-none-linux-gnueabi-size        /usr/local/arm_linux_4.7/bin/arm-linux-size
+ln -s arm-none-linux-gnueabi-strings     /usr/local/arm_linux_4.7/bin/arm-linux-strings
+ln -s arm-none-linux-gnueabi-strip       /usr/local/arm_linux_4.7/bin/arm-linux-strip
+exit
+
+
+Build ncurses.
+
+cd ~/Linux/crosstools/build
+tar xfz ../packages/ncurses-5.9.tar.gz
+cd ncurses-5.9
+./configure \
+  --host=arm-none-linux-gnueabi \
+  --target=arm-none-linux-gnueabi \
+  --with-build-cc=gcc \
+  --with-build-cpp=cpp \
+  --with-shared \
+  --program-transform-name='s,\\\\arm-none-linux-gnueabi-(.*\\\\),\\\\1,' \
+  --prefix=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi \
+  --without-manpages \
+  --without-tests
+make all
+sudo make install
+
+Build zlib.
+
+cd ~/Linux/crosstools/build
+tar xfz ../packages/zlib-1.2.8.tar.gz
+cd zlib-1.2.8
+CC=arm-none-linux-gnueabi-gcc \
+  CPP=arm-none-linux-gnueabi-cpp \
+  AR=arm-none-linux-gnueabi-ar \
+  ./configure \
+  --prefix=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi
+CC=arm-none-linux-gnueabi-gcc \
+  CPP=arm-none-linux-gnueabi-cpp \
+  AR=arm-none-linux-gnueabi-ar \
+  make all
+sudo su
+CC=arm-none-linux-gnueabi-gcc \
+  CPP=arm-none-linux-gnueabi-cpp \
+  AR=arm-none-linux-gnueabi-ar \
+  make install
+exit
+
+Build libssl.
+
+cd ~/Linux/crosstools/build
+tar xfz ../packages/openssl-1.0.1j.tar.gz
+cd openssl-1.0.1j
+CC=arm-none-linux-gnueabi-gcc \
+  CPP=arm-none-linux-gnueabi-cpp \
+  AR=arm-none-linux-gnueabi-ar \
+  ./Configure \
+  shared \
+  --prefix=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi \
+  --openssldir=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi \
+  linux-armv4
+make
+sudo make install_sw
+
+Build libcurl.
+
+cd ~/Linux/crosstools/build
+tar xfj ../packages/curl-7.38.0.tar.bz2
+cd build/curl-7.38.0
+./configure \
+  --host=arm-none-linux-gnueabi \
+  --prefix=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi
+make all
+sudo su
+make install
+exit
+
+Build uClibc++.  We essentially replace the very large libstdc++.a with uClibc++.a.
+
+cd ~/Linux/crosstools/build
+tar xfj ../packages/uClibc++-0.2.4.tar.bz2
+cd uClibc++-0.2.4
+CROSS= make defconfig
+sed -r -i 's/(UCLIBCXX_HAS_(TLS|LONG_DOUBLE))=y/# \1 is not set/' .config
+sed -r -i '/UCLIBCXX_RUNTIME_PREFIX=/s/".*"/""/' .config
+CROSS= make oldconfig
+
+Edit the following file:
+./include/unwind-cxx.h
+Change line 176 from:
+-----------------------------------------------------
+= ((((((((_Unwind_Exception_Class) 'G' ^M
+         << 8 | (_Unwind_Exception_Class) 'N')^M
+        << 8 | (_Unwind_Exception_Class) 'U')^M
+       << 8 | (_Unwind_Exception_Class) 'C')^M
+      << 8 | (_Unwind_Exception_Class) 'C')^M
+     << 8 | (_Unwind_Exception_Class) '+')^M
+    << 8 | (_Unwind_Exception_Class) '+')^M
+   << 8 | (_Unwind_Exception_Class) '\0');^M
+-----------------------------------------------------
+To:
+-----------------------------------------------------
+= "GNUCC++";
+-----------------------------------------------------
+
+CROSS=arm-none-linux-gnueabi- make
+sudo su
+CROSS= make install PREFIX=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi/c++
+mv /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/c++/lib/* /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/lib
+rm -rf /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/c++/{lib,bin}
+rm -f /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/lib/libstdc++.so
+rm -f /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/lib/libstdc++.a
+ln -s libuClibc++.so /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/lib/libstdc++.so
+ln -s libuClibc++.a /usr/local/arm_linux_4.7/arm-none-linux-gnueabi/lib/libstdc++.a
+exit
+
