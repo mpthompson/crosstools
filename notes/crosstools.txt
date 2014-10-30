@@ -231,11 +231,24 @@ Build libiconv.
 
 cd ~/Linux/crosstools/build
 tar xfz ../packages/libiconv-1.14.tar.gz
-cd build/libiconv-1.14
+cd libiconv-1.14
 ./configure \
   --host=arm-none-linux-gnueabi \
   --prefix=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi \
   --enable-static
+make all
+make install
+
+Build libnl.
+
+cd ~/Linux/crosstools/build
+tar xfz ../packages/libnl-3.2.25.tar.gz
+cd libnl-3.2.25
+./configure \
+  --host=arm-none-linux-gnueabi \
+  --prefix=/usr/local/arm_linux_4.7/arm-none-linux-gnueabi \
+  --enable-static
+Add the "-DNAME_MAX=255" to CFLAGS in ./lib/Makefile 
 make all
 make install
 
